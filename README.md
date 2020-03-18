@@ -8,3 +8,5 @@ In theory, I would use ANY, requests, but cloudflare, in their infinite wisdom, 
 With this in mind, I am forced to pick and choose which queries are important to me. A and AAAA records are obvious things to keep, but I also would like to have CNAME queries. NS should be aquired from any of the previous queries and stored alongside the rest of the data, and MX/TXT queries are not considered time sensitive. This will eventually be in a config file with the ability to pick-and-choose different queries.
 
 In theory, in a low-memory environment, just caching NS records would significantly speed up queries while using less memory, but I am optimizing this for total caching capacity, bar none.
+
+It could be argued that the number of domains that this would actually enhance is very small, but in a world of 5 minute TTL's and COVID-19 wiping out schools for a month, I ask you, why not do it *anyway*...

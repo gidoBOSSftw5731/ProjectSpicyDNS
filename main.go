@@ -3,9 +3,11 @@ package main
 import (
 	"archive/zip"
 	"bufio"
+	"database/sql"
 	"encoding/csv"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path"
@@ -13,6 +15,27 @@ import (
 	"strings"
 
 	"github.com/gidoBOSSftw5731/log"
+	"github.com/jinzhu/configor"
+	_ "github.com/lib/pq"
+	"github.com/miekg/dns"
+)
+
+var config = struct {
+	DB struct {
+		User     string `default:"spicydns"`
+		Password string `required:"true" env:"DBPassword" default:"Sp1cyDn5"`
+		Port     string `default:"5432"`
+		IP       string `default:"127.0.0.1"`
+	}
+	Threads        int    `default:"25"`
+	Nameserver     string `default:"127.0.0.1"`
+	NameserverPort string `default::"53"`
+}{}
+
+var (
+	domainQueue chan string
+	db          *sql.DB
+	queries     = []uint16{dns.TypeA, dns.TypeAAAA, dns.TypeCNAME}
 )
 
 const (
@@ -20,9 +43,11 @@ const (
 )
 
 func main() {
+	configor.Load(&config, "config.yml")
 	log.SetCallDepth(4)
 	tmp := os.TempDir()
 	zipPath := path.Join(tmp, "domList.zip")
+	domainQueue = make(chan string)
 
 	err := downloadFile(zipPath, domListZip)
 	if err != nil {
@@ -54,7 +79,68 @@ func main() {
 		entries = append(entries, line[1])
 	}
 
-	
+	// filesystems are slow, so let's just do these in the background
+	// they're good practice, not a necessity
+	go os.Remove(zipPath)
+	go os.Remove(csvArr[0])
+
+	// now all the domains are in an array (slice?)
+
+	db, err = mkDB()
+
+	initQuery(entries)
+}
+
+func mkDB() (*sql.DB, error) {
+	return sql.Open("pq", fmt.Sprintf("%s:%s@tcp(%s:%s)/spicydns",
+		config.DB.User, config.DB.Password, config.DB.IP, config.DB.Port))
+	/*
+		CREATE TABLE records (
+			domain text,
+			recordtype int,
+			record text,
+			ttl int,
+			isExpired bool
+		);
+
+	*/
+}
+
+// queryer is a function that queries all input queries from a channel.
+// These are workers, they are as many of these as there are threads defined in the config
+// queryer means one that queries (query-er)
+func queryer(id int, jobs <-chan string) {
+	//dnsConfig, _ := dns.ClientConfigFromFile(filepath.Join(os.TempDir(), "resolv.conf"))
+	c := new(dns.Client)
+
+	for domain := range jobs {
+		m := new(dns.Msg)
+		m.SetQuestion(domain+".", dns.TypeNS)
+		m.RecursionDesired = true
+		r, _, _ := c.Exchange(m, net.JoinHostPort(config.Nameserver, config.NameserverPort))
+		for _, answer := range r.Answer {
+			db.Exec("INSERT INTO records (domain, recordtype, record, ttl, isExpired) VALUES (?, ?, ?, ?, ?)",
+			 answer.Header().Name,answer.Header().Rrtype, answer.)
+		}
+		for _, queryType := range queries {
+			m := new(dns.Msg)
+			m.SetQuestion(domain+".", queryType)
+			m.RecursionDesired = true
+			r, _, _ := c.Exchange(m, net.JoinHostPort(config.Nameserver, config.NameserverPort))
+
+		}
+	}
+}
+
+func initQuery(domains []string) {
+	for w := 0; w < config.Threads; w++ {
+		go queryer(w, domainQueue)
+	}
+
+	for _, domain := range domains {
+		domainQueue <- domain
+	}
+
 }
 
 // downloadFile will download a url to a local file. It's efficient because it will

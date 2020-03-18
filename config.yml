@@ -1,0 +1,6 @@
+db:
+    user:     spicydns
+    password: Sp1cyDn5
+    port:     5432
+threads: 25
+nameserver: "192.110.255.55"
